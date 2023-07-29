@@ -1,6 +1,7 @@
 #include "wcm.hpp"
 #include "utils.hpp"
 
+#include <filesystem>
 #include <libevdev/libevdev.h>
 #include <wayfire/config/compound-option.hpp>
 #include <wayfire/config/types.hpp>
@@ -1044,7 +1045,7 @@ void Plugin::init_widget()
 {
     label.set_text(disp_name);
     label.set_ellipsize(Pango::ELLIPSIZE_END);
-    icon.set(ICONDIR "/plugin-" + name + ".svg");
+    icon.set(WCM::get_instance()->find_icon("plugin-" + name + ".svg"));
     button_layout.pack_start(icon);
     button_layout.pack_start(label);
     button_layout.set_halign(Gtk::ALIGN_START);
@@ -1245,7 +1246,7 @@ WCM::WCM(Glib::RefPtr<Gtk::Application> app)
         }
 
         window    = std::make_unique<Gtk::ApplicationWindow>(app);
-        auto icon = Gdk::Pixbuf::create_from_file(ICONDIR "/wcm.png");
+        auto icon = Gdk::Pixbuf::create_from_file(find_icon("wcm.png"));
         window->set_icon(icon);
         window->set_size_request(750, 550);
         window->set_default_size(1000, 580);
@@ -1450,6 +1451,8 @@ void WCM::create_main_layout()
     plugin_left_panel_layout.pack_start(plugin_description_label, false, false);
     plugin_description_label.set_line_wrap();
     plugin_description_label.set_max_width_chars(20);
+    plugin_description_label.set_alignment(Gtk::ALIGN_CENTER);
+    plugin_description_label.set_justify(Gtk::JUSTIFY_CENTER);
     plugin_description_label.set_margin_left(50);
     plugin_description_label.set_margin_right(50);
     plugin_left_panel_layout.pack_start(plugin_enabled_box, false, false);
@@ -1695,4 +1698,32 @@ std::shared_ptr<wf::config::section_t> WCM::get_config_section(Plugin *plugin)
 
 #endif
     return nullptr;
+}
+
+std::string WCM::find_icon(const std::string & name)
+{
+    // first try to find it in the user's local folders
+    std::string icon_path;
+    std::string xdg_data_dir;
+    char *c_xdg_data_dir = std::getenv("XDG_DATA_HOME");
+    char *c_user_home    = std::getenv("HOME");
+
+    if (c_xdg_data_dir != NULL)
+    {
+        xdg_data_dir = c_xdg_data_dir;
+    } else if (c_user_home != NULL)
+    {
+        xdg_data_dir = (std::string)c_user_home + "/.local/share/";
+    }
+
+    if (!xdg_data_dir.empty())
+    {
+        icon_path = xdg_data_dir + "/wayfire/icons/" + name;
+        if (std::filesystem::exists(icon_path))
+        {
+            return icon_path;
+        }
+    }
+
+    return ICONDIR "/" + name;
 }
