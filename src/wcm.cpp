@@ -157,7 +157,8 @@ std::string KeyEntry::grab_key()
         return true;
     });
 
-    if (!WCM::get_instance()->lock_input())
+    grab_dialog.show();
+    if (!WCM::get_instance()->lock_input(&grab_dialog))
     {
         return "";
     }
@@ -1268,10 +1269,10 @@ static void registry_add_object(void *data, struct wl_registry *registry,
 {
     WCM *wcm = (WCM*)data;
 
-    if (strcmp(interface, zwlr_input_inhibit_manager_v1_interface.name) == 0)
+    if (strcmp(interface, zwp_keyboard_shortcuts_inhibit_manager_v1_interface.name) == 0)
     {
-        wcm->set_inhibitor_manager((zwlr_input_inhibit_manager_v1*)wl_registry_bind(
-            registry, name, &zwlr_input_inhibit_manager_v1_interface, 1u));
+        wcm->set_inhibitor_manager((zwp_keyboard_shortcuts_inhibit_manager_v1*)wl_registry_bind(
+            registry, name, &zwp_keyboard_shortcuts_inhibit_manager_v1_interface, 1u));
     }
 }
 
@@ -1308,8 +1309,8 @@ bool WCM::init_input_inhibitor()
     wl_display_roundtrip(display);
     if (!inhibitor_manager)
     {
-        std::cerr << "Compositor does not support " <<
-            "wlr_input_inhibit_manager_v1" << std::endl;
+        std::cerr << "Compositor does not advertise " <<
+            "zwp_keyboard_shortcuts_inhibit_manager_v1" << std::endl;
 
         return false;
     }
@@ -1317,37 +1318,49 @@ bool WCM::init_input_inhibitor()
     return true;
 }
 
-bool WCM::lock_input()
+bool WCM::lock_input(Gtk::Dialog *grab_dialog)
 {
     if (!inhibitor_manager)
     {
-        std::cerr << "Compositor does not support wlr_input_inhibit_manager_v1!" <<
+        std::cerr << "Compositor does not advertise zwp_keyboard_shortcuts_inhibit_manager_v1!" <<
             std::endl;
+
+        auto error_dialog = Gtk::Dialog(
+            "Compositor does not advertise zwp_keyboard_shortcuts_inhibit_manager_v1!", *window,
+            Gtk::DIALOG_DESTROY_WITH_PARENT);
+        auto label = Gtk::Label("To use input binding capture, enable shortcuts-inhibit plugin.");
+        error_dialog.get_content_area()->pack_start(label, true, true, 50);
+        error_dialog.add_button("Ok", 0);
+        label.show();
+        error_dialog.run();
 
         return false;
     }
 
-    if (screen_lock)
+    if (shortcuts_inhibitor)
     {
         return false;
     }
 
     /* Lock input */
-    screen_lock = zwlr_input_inhibit_manager_v1_get_inhibitor(inhibitor_manager);
+    auto surface = gdk_wayland_window_get_wl_surface(gtk_widget_get_window(GTK_WIDGET(grab_dialog->gobj())));
+    auto seat    = gdk_wayland_seat_get_wl_seat(gdk_device_get_seat(gtk_get_current_event_device()));
+    shortcuts_inhibitor = zwp_keyboard_shortcuts_inhibit_manager_v1_inhibit_shortcuts(inhibitor_manager,
+        surface, seat);
 
     return true;
 }
 
 void WCM::unlock_input()
 {
-    if (!screen_lock)
+    if (!shortcuts_inhibitor)
     {
         return;
     }
 
-    zwlr_input_inhibitor_v1_destroy(screen_lock);
+    zwp_keyboard_shortcuts_inhibitor_v1_destroy(shortcuts_inhibitor);
     wl_display_flush(gdk_wayland_display_get_wl_display(gdk_display_get_default()));
-    screen_lock = nullptr;
+    shortcuts_inhibitor = nullptr;
 }
 
 void WCM::set_plugin_enabled(Plugin *plugin, bool enabled)
@@ -1438,7 +1451,7 @@ void WCM::create_main_layout()
     });
     main_left_panel_layout.pack_end(output_config_button, false, false);
 
-    if (system("which " OUTPUT_CONFIG_PROGRAM " > /dev/null 2>&1") != 0)
+    if (system("command -v " OUTPUT_CONFIG_PROGRAM " > /dev/null 2>&1") != 0)
     {
         output_config_button.set_sensitive(false);
         output_config_button.set_tooltip_markup(
