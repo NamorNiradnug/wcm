@@ -6,6 +6,7 @@
 #include <wayfire/config/compound-option.hpp>
 #include <wayfire/config/types.hpp>
 #include <wayfire/config/xml.hpp>
+#include <wayfire/util/duration.hpp>
 #include <wordexp.h>
 
 #define OUTPUT_CONFIG_PROGRAM "wdisplays"
@@ -339,11 +340,8 @@ OptionWidget::OptionWidget(Option *option) : Gtk::Box(Gtk::ORIENTATION_HORIZONTA
     {
       case OPTION_TYPE_INT:
     {
-        auto value_optional = wf::option_type::from_string<int>(
-            wf_option->get_value_str());
-        int value = value_optional ? value_optional.value() : std::get<int>(
-            option->default_value);
-
+        int value = wf::option_type::from_string<int>(wf_option->get_value_str()).value_or(
+            std::get<int>(option->default_value));
         if (option->int_labels.empty())
         {
             auto spin_button = std::make_unique<Gtk::SpinButton>(
@@ -386,6 +384,55 @@ OptionWidget::OptionWidget(Option *option) : Gtk::Box(Gtk::ORIENTATION_HORIZONTA
                 });
             pack_end(std::move(combo_box), true, true);
         }
+    }
+    break;
+
+      case OPTION_TYPE_ANIMATION:
+    {
+        auto set_value = wf::option_type::from_string<wf::animation_description_t>(
+            wf_option->get_value_str());
+        auto default_value =
+            wf::option_type::from_string<wf::animation_description_t>(std::get<std::string>(option->
+                default_value));
+        int length_value = set_value ? set_value->length_ms : default_value->length_ms;
+        std::string easing_value = set_value ? set_value->easing_name : default_value->easing_name;
+
+        auto spin_button = std::make_unique<Gtk::SpinButton>(
+            Gtk::Adjustment::create(length_value, option->data.min, option->data.max, 1));
+        auto combo_box = std::make_unique<Gtk::ComboBoxText>();
+        for (const auto& easing : wf::animation::smoothing::get_available_smooth_functions())
+        {
+            static const std::map<std::string, int> preffered_easing_position = {
+                {"linear", 0},
+                {"circle", 1},
+                {"sigmoid", 2},
+            };
+            if (preffered_easing_position.count(easing) != 0)
+            {
+                combo_box->insert(preffered_easing_position.at(easing), easing);
+            } else
+            {
+                combo_box->append(easing);
+            }
+        }
+
+        combo_box->set_active_text(easing_value);
+
+        auto update_option_value = [=, length_widget = spin_button.get(), easing_widget = combo_box.get()]
+            {
+                option->set_save(std::to_string(
+                    length_widget->get_value_as_int()) + "ms " + easing_widget->get_active_text().c_str());
+            };
+        spin_button->signal_changed().connect(update_option_value);
+        combo_box->signal_changed().connect(std::move(update_option_value));
+        reset_button.signal_clicked().connect([=, length_widget = spin_button.get(),
+                                               easing_widget = combo_box.get()]
+            {
+                length_widget->set_value(default_value->length_ms);
+                easing_widget->set_active_text(default_value->easing_name);
+            });
+        pack_end(std::move(spin_button));
+        pack_end(std::move(combo_box));
     }
     break;
 
