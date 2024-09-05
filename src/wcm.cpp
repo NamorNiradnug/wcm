@@ -299,10 +299,8 @@ std::ostream& operator <<(std::ostream & out, const wf::color_t & color)
 template<class value_type>
 void Option::set_value(wf_section section, const value_type & value)
 {
-    std::cout << section->get_name() << "." << name << " = " << value << "; ";
     section->get_option(name)->set_value_str(wf::option_type::to_string<value_type>(
         value));
-    std::cout << section->get_option(name)->get_value_str() << "; ";
 }
 
 template<class... ArgTypes>
@@ -314,7 +312,6 @@ void Option::set_save(const ArgTypes &... args)
         return;
     }
 
-    std::cout << __PRETTY_FUNCTION__ << ": \n  ";
     set_value(section, args...);
     WCM::get_instance()->save_config(plugin);
 }
@@ -347,7 +344,7 @@ OptionWidget::OptionWidget(Option *option) : Gtk::Box(Gtk::ORIENTATION_HORIZONTA
             auto spin_button = std::make_unique<Gtk::SpinButton>(
                 Gtk::Adjustment::create(value, option->data.min, option->data.max,
                     1));
-            spin_button->signal_changed().connect(sigc::track_obj(
+            spin_button->signal_value_changed().connect(sigc::track_obj(
                 [=, widget = spin_button.get()]
                 {
                     option->set_save(widget->get_value_as_int());
@@ -361,12 +358,15 @@ OptionWidget::OptionWidget(Option *option) : Gtk::Box(Gtk::ORIENTATION_HORIZONTA
         } else
         {
             auto combo_box = std::make_unique<Gtk::ComboBoxText>();
-            for (const auto & [name, _] : option->int_labels)
+            for (const auto & [name, i] : option->int_labels)
             {
                 combo_box->append(name);
+                if (i == value)
+                {
+                    combo_box->set_active_text(name);
+                }
             }
 
-            combo_box->set_active(value);
             combo_box->signal_changed().connect([=, widget = combo_box.get()]
                 {
                     for (const auto & [name, int_value] : option->int_labels)
@@ -423,7 +423,7 @@ OptionWidget::OptionWidget(Option *option) : Gtk::Box(Gtk::ORIENTATION_HORIZONTA
                 option->set_save(std::to_string(
                     length_widget->get_value_as_int()) + "ms " + easing_widget->get_active_text().c_str());
             };
-        spin_button->signal_changed().connect(sigc::track_obj(update_option_value, tracker));
+        spin_button->signal_value_changed().connect(sigc::track_obj(update_option_value, tracker));
         combo_box->signal_changed().connect(std::move(update_option_value));
         reset_button.signal_clicked().connect([=, length_widget = spin_button.get(),
                                                easing_widget = combo_box.get()]
@@ -466,20 +466,20 @@ OptionWidget::OptionWidget(Option *option) : Gtk::Box(Gtk::ORIENTATION_HORIZONTA
         double value = value_optional ? value_optional.value() : std::get<double>(
             option->default_value);
 
-        auto spin_box = std::make_unique<Gtk::SpinButton>(
+        auto spin_button = std::make_unique<Gtk::SpinButton>(
             Gtk::Adjustment::create(value, option->data.min, option->data.max,
                 option->data.precision),
             option->data.precision, 3);
-        spin_box->signal_changed().connect(sigc::track_obj([=, widget = spin_box.get()]
+        spin_button->signal_value_changed().connect(sigc::track_obj([=, widget = spin_button.get()]
             {
                 option->set_save(widget->get_value());
             }, tracker));
         reset_button.signal_clicked().connect(
-            [=, widget = spin_box.get()]
+            [=, widget = spin_button.get()]
             {
                 widget->set_value(std::get<double>(option->default_value));
             });
-        pack_end(std::move(spin_box));
+        pack_end(std::move(spin_button));
     }
     break;
 
@@ -1019,7 +1019,6 @@ OptionGroupWidget::OptionGroupWidget(Option *group)
             option_widgets.push_back(std::make_unique<OptionSubgroupWidget>(option));
         } else if (option->type == OPTION_TYPE_DYNAMIC_LIST)
         {
-            std::cout << option->name << std::endl;
             if (option->name == "autostart")
             {
                 option_widgets.push_back(std::make_unique<AutostartDynamicList>(
@@ -1099,6 +1098,7 @@ void Plugin::init_widget()
         icon.set(icon_path);
         button_layout.pack_start(icon);
     }
+
     button_layout.pack_start(label);
     button_layout.set_halign(Gtk::ALIGN_START);
     button.set_tooltip_markup(tooltip);
@@ -1712,8 +1712,6 @@ void update_compound_from_section(wf::config::compound_option_t *compound,
  */
 void WCM::save_to_file(wf::config::config_manager_t & mgr, const std::string & file)
 {
-    std::cout << "Saving to file " << file << std::endl;
-
     for (auto & section : mgr.get_all_sections())
     {
         for (auto & opt : section->get_registered_options())
